@@ -2,6 +2,8 @@
 
 import { useRef, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { getResumeMetadata, saveProfile, uploadResume } from "../../../lib/api";
+import { writeProfileToLocalStorage } from "../../../lib/profile";
 
 export default function OnboardingStep3() {
   const router = useRouter();
@@ -9,6 +11,8 @@ export default function OnboardingStep3() {
 
   const [uploadedFile, setUploadedFile] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const acceptedTypes = [
     "application/pdf",
@@ -16,25 +20,58 @@ export default function OnboardingStep3() {
   ];
 
   useEffect(() => {
+    const guestMode = sessionStorage.getItem("guest_mode") === "true";
     const savedResume = localStorage.getItem("resumeFileName");
     if (savedResume) {
       setUploadedFile(savedResume);
     }
+
+    const userId = localStorage.getItem("user_id");
+    if (!userId || guestMode) return;
+
+    void getResumeMetadata(userId).then((resume) => {
+      if (resume.file_name) {
+        localStorage.setItem("resumeFileName", resume.file_name);
+        setUploadedFile(resume.file_name);
+      }
+    }).catch(() => {});
   }, []);
 
-  const handleFile = (file: File) => {
-    if (acceptedTypes.includes(file.type)) {
+  const getUserId = (): string => {
+    let id = localStorage.getItem("user_id");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("user_id", id);
+    }
+    return id;
+  };
+
+  const handleFile = async (file: File) => {
+    setError(null);
+
+    if (!acceptedTypes.includes(file.type)) {
+      setError("Please upload a PDF or DOCX file.");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const userId = getUserId();
+      await uploadResume(userId, file);
       setUploadedFile(file.name);
       localStorage.setItem("resumeFileName", file.name);
       localStorage.setItem("hasCompletedOnboarding", "true");
-    } else {
-      alert("Please upload a PDF or DOCX file.");
+    } catch (err) {
+      setUploadedFile(null);
+      setError(err instanceof Error ? err.message : "Resume upload failed.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -51,14 +88,22 @@ export default function OnboardingStep3() {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    if (file) void handleFile(file);
   };
 
-  const handleFinish = () => {
-    localStorage.setItem("hasCompletedOnboarding", "true");
+  const handleFinish = async () => {
+    writeProfileToLocalStorage({ onboardingCompleted: true, profileSaved: true });
 
     if (uploadedFile) {
       localStorage.setItem("resumeFileName", uploadedFile);
+    }
+
+    const userId = localStorage.getItem("user_id");
+    if (userId && sessionStorage.getItem("guest_mode") !== "true") {
+      await saveProfile(userId, {
+        onboardingCompleted: true,
+        profileSaved: true,
+      });
     }
 
     router.push("/dashboard");
@@ -169,7 +214,11 @@ export default function OnboardingStep3() {
                     isDragging ? "text-indigo-300" : "text-white/70"
                   }`}
                 >
-                  {isDragging ? "Drop your file here" : "Drag & drop your resume here"}
+                  {isUploading
+                    ? "Uploading your resume..."
+                    : isDragging
+                    ? "Drop your file here"
+                    : "Drag & drop your resume here"}
                 </p>
                 <p className="text-xs text-white/35">or click to browse</p>
               </div>
@@ -188,12 +237,19 @@ export default function OnboardingStep3() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
               className="px-5 py-2.5 rounded-xl text-sm font-medium text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 hover:text-indigo-200 transition-all duration-200"
             >
-              {uploadedFile ? "Replace Resume" : "Upload Resume"}
+              {isUploading ? "Uploading..." : uploadedFile ? "Replace Resume" : "Upload Resume"}
             </button>
             <p className="text-xs text-white/30">Supported formats: PDF, DOCX</p>
           </div>
+
+          {error && (
+            <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              {error}
+            </div>
+          )}
 
           <div className="my-8 border-t border-white/[0.06]" />
 
@@ -209,6 +265,7 @@ export default function OnboardingStep3() {
             <button
               type="button"
               onClick={handleFinish}
+              disabled={isUploading}
               className="flex-[2] px-5 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-200"
             >
               Finish

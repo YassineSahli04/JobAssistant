@@ -7,7 +7,9 @@ services:
     volumes:
       - ./Frontend:/app
       - vite_node_modules:/app/node_modules
-    command: sh -lc "npm ci && npm run dev -- --hostname 0.0.0.0"
+    env_file:                      # 👈 Add this line
+      - .env                       # 👈
+    command: sh -lc "npm install && npm run dev -- --hostname 0.0.0.0"
 
   agent:
     build:

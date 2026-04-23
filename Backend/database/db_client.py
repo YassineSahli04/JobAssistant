@@ -19,6 +19,16 @@ class Supabase:
     def get_resumes_by_user(self, user_id: str):
         return self.supabase.table("resumes").select("file_path").eq("user_id", user_id).execute()
 
+    def get_latest_resume_record(self, user_id: str):
+        return (
+            self.supabase.table("resumes")
+            .select("file_path, original_filename, mime_type, parsed_text, created_at")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
     def delete_resumes_by_user(self, user_id: str):
         return self.supabase.table("resumes").delete().eq("user_id", user_id).execute()
 

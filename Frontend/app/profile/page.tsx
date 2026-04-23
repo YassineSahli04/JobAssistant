@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { uploadResume } from "../../lib/api";
+import { getProfile, getResumeMetadata, saveProfile, uploadResume } from "../../lib/api";
+import { loadProfileFromLocalStorage, writeProfileToLocalStorage } from "../../lib/profile";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -17,6 +18,7 @@ export default function ProfilePage() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
   const [linkedin, setLinkedin] = useState("");
@@ -39,82 +41,90 @@ export default function ProfilePage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
-    setFullName(localStorage.getItem("profile_fullName") || "");
-    setEmail(localStorage.getItem("profile_email") || "");
-    setPhone(localStorage.getItem("profile_phone") || "");
-    setLocation(localStorage.getItem("profile_location") || "");
-    setLinkedin(localStorage.getItem("profile_linkedin") || "");
-
-    setCurrentJobTitle(localStorage.getItem("profile_currentJobTitle") || "");
-    setYearsOfExperience(
-      localStorage.getItem("profile_yearsOfExperience") || ""
-    );
-    setSummary(localStorage.getItem("profile_summary") || "");
-    setDesiredJobTitle(localStorage.getItem("profile_desiredJobTitle") || "");
-    setSalaryRange(localStorage.getItem("profile_salaryRange") || "");
-    setPreferredWorkLocation(
-      localStorage.getItem("profile_preferredWorkLocation") || ""
-    );
-
-    const savedEmploymentType =
-      localStorage.getItem("profile_employmentType") || "";
-    setEmploymentType(savedEmploymentType);
-
-    const savedPreferredIndustry =
-      localStorage.getItem("profile_preferredIndustry") || "";
-    setPreferredIndustry(savedPreferredIndustry);
-
-    const savedPreferredIndustries =
-      localStorage.getItem("profile_preferredIndustries") || "";
-    setPreferredIndustries(savedPreferredIndustries);
-
-    const savedWorkExperience = localStorage.getItem("profile_workExperience");
-    if (savedWorkExperience) {
-      try {
-        setWorkExperience(JSON.parse(savedWorkExperience));
-      } catch {
-        setWorkExperience([]);
-      }
-    }
-
-    const savedSkills = localStorage.getItem("profile_skills");
-    if (savedSkills) {
-      try {
-        setSkills(JSON.parse(savedSkills));
-      } catch {
-        setSkills([]);
-      }
-    }
-
+    const localProfile = loadProfileFromLocalStorage();
+    setFullName(localProfile.fullName);
+    setEmail(localProfile.email);
+    setDateOfBirth(localProfile.dateOfBirth);
+    setPhone(localProfile.phone);
+    setLocation(localProfile.location);
+    setLinkedin(localProfile.linkedin);
+    setCurrentJobTitle(localProfile.currentJobTitle);
+    setYearsOfExperience(localProfile.yearsOfExperience);
+    setSummary(localProfile.summary);
+    setDesiredJobTitle(localProfile.desiredJobTitle);
+    setSalaryRange(localProfile.salaryRange);
+    setPreferredWorkLocation(localProfile.preferredWorkLocation);
+    setEmploymentType(localProfile.employmentType);
+    setPreferredIndustry(localProfile.preferredIndustry);
+    setPreferredIndustries(localProfile.preferredIndustries);
+    setWorkExperience(localProfile.workExperience);
+    setSkills(localProfile.skills);
     setResumeFileName(localStorage.getItem("resumeFileName"));
+
+    const userId = localStorage.getItem("user_id");
+    if (!userId || sessionStorage.getItem("guest_mode") === "true") return;
+
+    void Promise.allSettled([getProfile(userId), getResumeMetadata(userId)]).then(([profileResult, resumeResult]) => {
+      if (profileResult.status === "fulfilled") {
+        const profile = profileResult.value;
+        writeProfileToLocalStorage(profile);
+        setFullName(profile.fullName || "");
+        setEmail(profile.email || "");
+        setDateOfBirth(profile.dateOfBirth || "");
+        setPhone(profile.phone || "");
+        setLocation(profile.location || "");
+        setLinkedin(profile.linkedin || "");
+        setCurrentJobTitle(profile.currentJobTitle || "");
+        setYearsOfExperience(profile.yearsOfExperience || "");
+        setSummary(profile.summary || "");
+        setDesiredJobTitle(profile.desiredJobTitle || "");
+        setSalaryRange(profile.salaryRange || "");
+        setPreferredWorkLocation(profile.preferredWorkLocation || "");
+        setEmploymentType(profile.employmentType || "");
+        setPreferredIndustry(profile.preferredIndustry || "");
+        setPreferredIndustries(profile.preferredIndustries || "");
+        setWorkExperience(profile.workExperience || []);
+        setSkills(profile.skills || []);
+      }
+
+      if (resumeResult.status === "fulfilled" && resumeResult.value.file_name) {
+        localStorage.setItem("resumeFileName", resumeResult.value.file_name);
+        setResumeFileName(resumeResult.value.file_name);
+      }
+    });
   }, []);
 
-  const handleSave = () => {
-    localStorage.setItem("profile_fullName", fullName);
-    localStorage.setItem("profile_email", email);
-    localStorage.setItem("profile_phone", phone);
-    localStorage.setItem("profile_location", location);
-    localStorage.setItem("profile_linkedin", linkedin);
+  const handleSave = async () => {
+    const profilePayload = {
+      fullName,
+      email,
+      dateOfBirth,
+      phone,
+      location,
+      linkedin,
+      currentJobTitle,
+      yearsOfExperience,
+      summary,
+      desiredJobTitle,
+      salaryRange,
+      preferredWorkLocation,
+      employmentType,
+      preferredIndustry,
+      preferredIndustries,
+      workExperience,
+      skills,
+      profileSaved: true,
+    };
 
-    localStorage.setItem("profile_currentJobTitle", currentJobTitle);
-    localStorage.setItem("profile_yearsOfExperience", yearsOfExperience);
-    localStorage.setItem("profile_summary", summary);
-    localStorage.setItem("profile_desiredJobTitle", desiredJobTitle);
-    localStorage.setItem("profile_salaryRange", salaryRange);
-    localStorage.setItem(
-      "profile_preferredWorkLocation",
-      preferredWorkLocation
-    );
+    writeProfileToLocalStorage(profilePayload);
 
-    localStorage.setItem("profile_employmentType", employmentType);
-    localStorage.setItem("profile_preferredIndustry", preferredIndustry);
-    localStorage.setItem("profile_preferredIndustries", preferredIndustries);
-
-    localStorage.setItem(
-      "profile_workExperience",
-      JSON.stringify(workExperience)
-    );
-    localStorage.setItem("profile_skills", JSON.stringify(skills));
+    const userId = localStorage.getItem("user_id");
+    if (userId && sessionStorage.getItem("guest_mode") !== "true") {
+      await saveProfile(userId, {
+        ...profilePayload,
+        onboardingCompleted: localStorage.getItem("hasCompletedOnboarding") === "true",
+      });
+    }
 
     alert("Profile saved successfully.");
     router.push("/dashboard");
@@ -232,6 +242,18 @@ export default function ProfilePage() {
                   className={inputClass}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
+                  Date of Birth
+                </label>
+                <input
+                  type="date"
+                  className={inputClass}
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
                 />
               </div>
 

@@ -2,8 +2,6 @@
 
 import React from "react";
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 export interface AIAnswerGeneratorProps {
   question: string;
   answer: string | null;
@@ -12,8 +10,6 @@ export interface AIAnswerGeneratorProps {
   isLoading?: boolean;
   className?: string;
 }
-
-// ── Main Component ─────────────────────────────────────────────────────────
 
 export default function AIAnswerGenerator({
   question,
@@ -29,12 +25,36 @@ export default function AIAnswerGenerator({
     }
   };
 
+  const loadingDots = (color: string, size: string) => (
+    <span className="flex items-center gap-1" aria-hidden="true">
+      {[0, 1, 2].map((dot) => (
+        <span
+          key={dot}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: "999px",
+            background: color,
+            display: "inline-block",
+            animation: `answer-loader-bounce 0.9s ${dot * 0.12}s infinite ease-in-out`,
+          }}
+        />
+      ))}
+    </span>
+  );
+
   return (
     <div
       className={`rounded-2xl p-6 flex flex-col ${className}`}
       style={{ background: "#0f1320", border: "1px solid #1e2538" }}
     >
-      {/* ── Card header ── */}
+      <style>{`
+        @keyframes answer-loader-bounce {
+          0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+          40% { opacity: 1; transform: translateY(-2px); }
+        }
+      `}</style>
+
       <div className="flex items-center gap-2 mb-5">
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -67,7 +87,6 @@ export default function AIAnswerGenerator({
         </h2>
       </div>
 
-      {/* ── Input + Button ── */}
       <div className="space-y-3">
         <input
           id="ai-question-input"
@@ -92,22 +111,23 @@ export default function AIAnswerGenerator({
           type="button"
           onClick={onGenerate}
           disabled={!question.trim() || isLoading}
-          className="w-full rounded-xl px-6 py-3 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f1320] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
+          className="w-full rounded-xl px-6 py-3 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f1320] active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
           style={{ background: "#6366f1", color: "#fff" }}
           onMouseEnter={(e) => {
-            if (!e.currentTarget.disabled)
-              e.currentTarget.style.background = "#4f52e0";
+            if (!e.currentTarget.disabled) e.currentTarget.style.background = "#4f52e0";
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = "#6366f1";
           }}
         >
-          {isLoading ? "Generating..." : "Generate Answer"}
+          <span className="flex items-center justify-center gap-2">
+            {isLoading && loadingDots("#ffffff", "6px")}
+            {isLoading ? "Generating Answer..." : "Generate Answer"}
+          </span>
         </button>
       </div>
 
-      {/* ── Answer display ── */}
-      {answer && (
+      {answer && !isLoading && (
         <div
           className="mt-4 rounded-xl p-4 leading-relaxed"
           style={{
@@ -118,7 +138,6 @@ export default function AIAnswerGenerator({
           aria-label="Generated answer"
           aria-live="polite"
         >
-          {/* Answer header */}
           <div className="flex items-center gap-1.5 mb-2">
             <svg
               width="12"

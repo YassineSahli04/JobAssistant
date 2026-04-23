@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getProfile, saveProfile } from "../../../lib/api";
+import { loadProfileFromLocalStorage, writeProfileToLocalStorage } from "../../../lib/profile";
 
 interface PersonalInfo {
   fullName: string;
@@ -21,12 +23,26 @@ export default function OnboardingStep1() {
   });
 
   useEffect(() => {
+    const localProfile = loadProfileFromLocalStorage();
     setFormData({
-      fullName: localStorage.getItem("profile_fullName") || "",
-      email: localStorage.getItem("profile_email") || "",
-      phone: localStorage.getItem("profile_phone") || "",
-      location: localStorage.getItem("profile_location") || "",
+      fullName: localProfile.fullName,
+      email: localProfile.email,
+      phone: localProfile.phone,
+      location: localProfile.location,
     });
+
+    const userId = localStorage.getItem("user_id");
+    if (!userId || sessionStorage.getItem("guest_mode") === "true") return;
+
+    void getProfile(userId).then((profile) => {
+      writeProfileToLocalStorage(profile);
+      setFormData({
+        fullName: profile.fullName || "",
+        email: profile.email || "",
+        phone: profile.phone || "",
+        location: profile.location || "",
+      });
+    }).catch(() => {});
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,11 +50,24 @@ export default function OnboardingStep1() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleContinue = () => {
-    localStorage.setItem("profile_fullName", formData.fullName);
-    localStorage.setItem("profile_email", formData.email);
-    localStorage.setItem("profile_phone", formData.phone);
-    localStorage.setItem("profile_location", formData.location);
+  const handleContinue = async () => {
+    writeProfileToLocalStorage({
+      fullName: formData.fullName,
+      email: formData.email,
+      phone: formData.phone,
+      location: formData.location,
+    });
+
+    const userId = localStorage.getItem("user_id");
+    if (userId && sessionStorage.getItem("guest_mode") !== "true") {
+      await saveProfile(userId, {
+        ...loadProfileFromLocalStorage(),
+        fullName: formData.fullName,
+        email: formData.email,
+        phone: formData.phone,
+        location: formData.location,
+      });
+    }
 
     router.push("/onboarding/step-2");
   };

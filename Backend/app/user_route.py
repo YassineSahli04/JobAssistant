@@ -2,10 +2,11 @@ import os
 import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..database.db_client import Supabase, get_db
 from ..helper import Helper
+from ..profile_store import profile_store
 from ..user import User
 
 router = APIRouter()
@@ -21,8 +22,47 @@ class TailorAnswerRequest(BaseModel):
     user_question: str
 
 
+class UserProfilePayload(BaseModel):
+    fullName: str = ""
+    email: str = ""
+    dateOfBirth: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin: str = ""
+    workExperience: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    employmentType: str = ""
+    preferredIndustry: str = ""
+    currentJobTitle: str = ""
+    yearsOfExperience: str = ""
+    summary: str = ""
+    desiredJobTitle: str = ""
+    salaryRange: str = ""
+    preferredWorkLocation: str = ""
+    preferredIndustries: str = ""
+    profileSaved: bool = False
+    onboardingCompleted: bool = False
+
+
+@router.get("/{user_id}/profile")
+def get_profile(user_id: str):
+    return profile_store.get(user_id)
+
+
+@router.put("/{user_id}/profile")
+def save_profile(user_id: str, body: UserProfilePayload):
+    return profile_store.upsert(user_id, body.model_dump(exclude_unset=True))
+
+
 @router.get("/{user_id}/resume")
 def get_resume_text(user_id: str, db: Supabase = Depends(get_db)):
+    latest_resume = db.get_latest_resume_record(user_id)
+    if latest_resume.data:
+        record = latest_resume.data[0]
+        parsed_text = record.get("parsed_text")
+        if isinstance(parsed_text, str) and parsed_text.strip():
+            return {"text": parsed_text}
+
     user = User(user_id)
     file_name, file_bytes, mimetype = user.get_latest_resume(db)
     if not file_name or not file_bytes or not mimetype:
@@ -30,7 +70,27 @@ def get_resume_text(user_id: str, db: Supabase = Depends(get_db)):
     try:
         return {"text": Helper.parse_resume_text(file_bytes, mimetype)}
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{str(e)} Please upload a text-based PDF or DOCX file. "
+                "Scanned/image-only resumes cannot be analyzed yet."
+            ),
+        )
+
+
+@router.get("/{user_id}/resume-metadata")
+def get_resume_metadata(user_id: str, db: Supabase = Depends(get_db)):
+    latest_resume = db.get_latest_resume_record(user_id)
+    if latest_resume.data:
+        record = latest_resume.data[0]
+        return {
+            "file_name": record.get("original_filename") or record.get("file_path"),
+            "file_path": record.get("file_path"),
+        }
+
+    raise HTTPException(status_code=404, detail="No resume found for this user.")
+
 
 @router.post("/{user_id}/score")
 async def score_resume(user_id: str, body: ScoreRequest):
@@ -73,6 +133,17 @@ async def upload_resume(
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
+    try:
+        parsed_text = Helper.parse_resume_text(file_bytes, file.content_type)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{str(e)} Please upload a text-based PDF or DOCX file. "
+                "Scanned/image-only resumes cannot be analyzed yet."
+            ),
+        )
+
     existing = db.get_resumes_by_user(user_id)
     if existing.data:
         old_paths: list[str] = [str(r["file_path"]) for r in existing.data if r.get("file_path")]  # type: ignore[union-attr]
@@ -90,10 +161,7 @@ async def upload_resume(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Storage upload failed: {str(e)}")
-    try:
-        parsed_text = Helper.parse_resume_text(file_bytes, file.content_type)
-    except Exception:
-        parsed_text = None
+
     resume_data = {
         "user_id": user_id,
         "file_path": file_path,

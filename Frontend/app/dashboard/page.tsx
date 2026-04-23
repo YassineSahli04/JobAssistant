@@ -4,17 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import MatchScoreCard from "../../components/MatchScoreCard";
 import AIAnswerGenerator from "../../components/AIAnswerGenerator";
-import { scoreResume, tailorAnswer } from "../../lib/api";
+import { getResumeMetadata, scoreResume, tailorAnswer, uploadResume } from "../../lib/api";
 
-import {
-  Search,
-  FileText,
-  User,
-  Sparkles,
-  CheckCircle2,
-  AlertCircle,
-  X,
-} from "lucide-react";
+import { Search, FileText, Sparkles, CheckCircle2, AlertCircle, X } from "lucide-react";
 
 type AnalysisResult = {
   score: number;
@@ -24,12 +16,95 @@ type AnalysisResult = {
   summary: string;
 };
 
+function ScoreRing({ score, size = 110 }: { score: number; size?: number }) {
+  const safeScore = Math.max(0, Math.min(100, score));
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - safeScore / 100);
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: `${size}px`,
+        height: `${size}px`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="rgba(255,255,255,0.10)"
+          strokeWidth={strokeWidth}
+          fill="transparent"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="#22c55e"
+          strokeWidth={strokeWidth}
+          fill="transparent"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+          style={{ transition: "stroke-dashoffset 0.7s ease" }}
+        />
+      </svg>
+
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "18px",
+          fontWeight: 700,
+          color: "#22c55e",
+        }}
+      >
+        {safeScore}%
+      </div>
+    </div>
+  );
+}
+
+function ButtonSpinner({ color = "#ffffff" }: { color?: string }) {
+  return (
+    <span className="flex items-center gap-1" aria-hidden="true">
+      {[0, 1, 2].map((dot) => (
+        <span
+          key={dot}
+          style={{
+            width: "6px",
+            height: "6px",
+            borderRadius: "999px",
+            background: color,
+            display: "inline-block",
+            animation: `dashboard-button-bounce 0.9s ${dot * 0.12}s infinite ease-in-out`,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const resultsRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [resumeFileName, setResumeFileName] = useState<string | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [jobUrl, setJobUrl] = useState("");
+  const [JobDescription, setJobDescription] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState("");
@@ -76,13 +151,52 @@ export default function DashboardPage() {
     }
   };
 
+  const handleResumeUpload = async (file: File) => {
+    setError("");
+    setIsUploading(true);
+
+    try {
+      const userId = getUserId();
+      await uploadResume(userId, file);
+      setResumeFileName(file.name);
+      if (!isGuest) {
+        localStorage.setItem("resumeFileName", file.name);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Resume upload failed.");
+      setResumeFileName(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   useEffect(() => {
-    const savedResume = localStorage.getItem("resumeFileName");
-    setResumeFileName(savedResume);
+    const guestMode = sessionStorage.getItem("guest_mode") === "true";
+    setIsGuest(guestMode);
+    setResumeFileName(guestMode ? null : localStorage.getItem("resumeFileName"));
+
+    const userId = localStorage.getItem("user_id");
+    if (!guestMode && userId) {
+      void getResumeMetadata(userId).then((resume) => {
+        if (resume.file_name) {
+          localStorage.setItem("resumeFileName", resume.file_name);
+          setResumeFileName(resume.file_name);
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   const handleAnalyze = async () => {
     setError("");
+
+    if (!resumeFileName) {
+      setError(
+        isGuest
+          ? "As a guest, please upload your resume first for this session."
+          : "Please upload your resume first before running analysis."
+      );
+      return;
+    }
 
     if (!jobUrl.trim()) {
       setError("Please enter a job URL.");
@@ -112,7 +226,18 @@ export default function DashboardPage() {
       setShowResults(false);
       setShowDetails(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong while analyzing the job.");
+      const message =
+        err instanceof Error ? err.message : "Something went wrong while analyzing the job.";
+
+      if (
+        message.includes("No resume found") ||
+        message.includes("/resume") ||
+        message.includes("404 Not Found")
+      ) {
+        setError("No resume is saved for this user yet. Please upload your resume first.");
+      } else {
+        setError(message);
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -120,38 +245,27 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-[#050816] text-white relative overflow-hidden">
+      <style>{`
+        @keyframes dashboard-button-bounce {
+          0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+          40% { opacity: 1; transform: translateY(-2px); }
+        }
+      `}</style>
+
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-40 left-[-120px] h-[420px] w-[420px] rounded-full bg-indigo-600/20 blur-[120px]" />
         <div className="absolute top-[220px] right-[-100px] h-[320px] w-[320px] rounded-full bg-violet-600/20 blur-[120px]" />
         <div className="absolute bottom-[-120px] left-[25%] h-[260px] w-[260px] rounded-full bg-blue-500/10 blur-[100px]" />
       </div>
 
-      <header className="relative z-10 border-b border-white/10 bg-white/[0.02] backdrop-blur-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 md:px-10">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-sm font-semibold text-indigo-300 shadow-lg shadow-indigo-500/10">
-              AI
-            </div>
-          </div>
-
-          <button
-            onClick={() => router.push("/profile")}
-            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-white/85 transition hover:bg-white/[0.08] hover:text-white"
-          >
-            <User className="h-4 w-4" />
-            Profile Settings
-          </button>
-        </div>
-      </header>
-
-      <section className="relative z-10 mx-auto max-w-7xl px-6 py-12 md:px-10">
+      <section className="relative z-10 mx-auto max-w-7xl px-6 pt-16 pb-12 md:px-10 md:pt-20">
         <div className="mb-10 text-center">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-4 py-1.5 text-sm text-indigo-300">
             <Sparkles className="h-4 w-4" />
             AI-Powered • Instant Analysis
           </div>
 
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+          <h2 className="text-3xl md:text-4xl font-bold tracking-tight leading-tight">
             AI{" "}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 to-violet-400">
               Job Assistant
@@ -191,7 +305,7 @@ export default function DashboardPage() {
                   Job Description
                 </label>
                 <textarea
-                  value={jobDescription}
+                  value={JobDescription}
                   onChange={(e) => setJobDescription(e.target.value)}
                   placeholder="Paste the full job description here..."
                   rows={8}
@@ -204,7 +318,10 @@ export default function DashboardPage() {
                 disabled={isAnalyzing}
                 className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:from-indigo-400 hover:to-violet-400 disabled:opacity-60"
               >
-                {isAnalyzing ? "Analyzing..." : "Analyze Job Match"}
+                <span className="flex items-center justify-center gap-2">
+                  {isAnalyzing && <ButtonSpinner />}
+                  {isAnalyzing ? "Analyzing Job Match..." : "Analyze Job Match"}
+                </span>
               </button>
             </div>
           </div>
@@ -222,25 +339,51 @@ export default function DashboardPage() {
                 <>
                   <p className="text-base font-medium text-white">{resumeFileName}</p>
                   <p className="mt-3 text-sm leading-6 text-white/45">
-                    Your resume is already stored and ready for analysis. You can update or replace it from your profile settings page.
+                    {isGuest
+                      ? "This resume is available for this guest session."
+                      : "Your resume is already stored and ready for analysis. You can update or replace it from your profile settings page."}
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-base font-medium text-white">No resume uploaded yet</p>
                   <p className="mt-3 text-sm leading-6 text-white/45">
-                    You have not uploaded a resume yet. Add one from your profile settings page.
+                    {isGuest
+                      ? "As a guest, upload your resume here before running analysis."
+                      : "You have not uploaded a resume yet. Add one from your profile settings page."}
                   </p>
                 </>
               )}
             </div>
 
-            <button
-              onClick={() => router.push("/profile")}
-              className="mt-6 w-full rounded-2xl border border-white/10 bg-white/[0.04] px-6 py-4 text-sm font-medium text-white/85 transition hover:bg-white/[0.08] hover:text-white"
-            >
-              Go to Profile Settings
-            </button>
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleResumeUpload(file);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="mt-6 w-full rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-6 py-4 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-60"
+              >
+                {isUploading
+                  ? "Uploading Resume..."
+                  : resumeFileName
+                  ? isGuest
+                    ? "Replace Resume for Guest Session"
+                    : "Replace Stored Resume"
+                  : isGuest
+                  ? "Upload Resume for Guest Session"
+                  : "Upload Resume"}
+              </button>
+            </>
           </div>
         </div>
         {error && (
@@ -278,6 +421,7 @@ export default function DashboardPage() {
                   answer={aiAnswer}
                   onQuestionChange={setAiQuestion}
                   onGenerate={handleGenerateAnswer}
+                  isLoading={isGeneratingAnswer}
                 />
               </div>
 
@@ -359,9 +503,7 @@ export default function DashboardPage() {
 
             <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
               <div className="grid grid-cols-[110px_1fr] gap-4 items-center">
-                <div className="flex h-[110px] w-[110px] items-center justify-center rounded-full border-[8px] border-[#22c55e] text-3xl font-bold text-[#22c55e] shadow-[0_0_20px_rgba(34,197,94,0.2)]">
-                  {analysisResult.score}%
-                </div>
+                <ScoreRing score={analysisResult.score} />
 
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">

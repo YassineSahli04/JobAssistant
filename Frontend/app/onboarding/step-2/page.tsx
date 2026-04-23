@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import SearchableMultiSelect from "../../../components/SearchableMultiSelect";
+import { getProfile, saveProfile } from "../../../lib/api";
+import { loadProfileFromLocalStorage, writeProfileToLocalStorage } from "../../../lib/profile";
 
 const WORK_EXPERIENCE_OPTIONS = [
   "Software Engineer",
@@ -111,29 +113,22 @@ export default function CareerProfileStep() {
   const [industry, setIndustry] = useState("");
 
   useEffect(() => {
-    const savedWorkExperience = localStorage.getItem("profile_workExperience");
-    const savedSkills = localStorage.getItem("profile_skills");
-    const savedJobType = localStorage.getItem("profile_employmentType");
-    const savedIndustry = localStorage.getItem("profile_preferredIndustry");
+    const localProfile = loadProfileFromLocalStorage();
+    setWorkExperience(localProfile.workExperience);
+    setSkills(localProfile.skills);
+    setJobType(localProfile.employmentType);
+    setIndustry(localProfile.preferredIndustry);
 
-    if (savedWorkExperience) {
-      try {
-        setWorkExperience(JSON.parse(savedWorkExperience));
-      } catch {
-        setWorkExperience([]);
-      }
-    }
+    const userId = localStorage.getItem("user_id");
+    if (!userId || sessionStorage.getItem("guest_mode") === "true") return;
 
-    if (savedSkills) {
-      try {
-        setSkills(JSON.parse(savedSkills));
-      } catch {
-        setSkills([]);
-      }
-    }
-
-    if (savedJobType) setJobType(savedJobType);
-    if (savedIndustry) setIndustry(savedIndustry);
+    void getProfile(userId).then((profile) => {
+      writeProfileToLocalStorage(profile);
+      setWorkExperience(profile.workExperience || []);
+      setSkills(profile.skills || []);
+      setJobType(profile.employmentType || "");
+      setIndustry(profile.preferredIndustry || "");
+    }).catch(() => {});
   }, []);
 
   const isValid =
@@ -142,16 +137,26 @@ export default function CareerProfileStep() {
     jobType !== "" &&
     industry !== "";
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (!isValid) return;
 
-    localStorage.setItem(
-      "profile_workExperience",
-      JSON.stringify(workExperience)
-    );
-    localStorage.setItem("profile_skills", JSON.stringify(skills));
-    localStorage.setItem("profile_employmentType", jobType);
-    localStorage.setItem("profile_preferredIndustry", industry);
+    writeProfileToLocalStorage({
+      workExperience,
+      skills,
+      employmentType: jobType,
+      preferredIndustry: industry,
+    });
+
+    const userId = localStorage.getItem("user_id");
+    if (userId && sessionStorage.getItem("guest_mode") !== "true") {
+      await saveProfile(userId, {
+        ...loadProfileFromLocalStorage(),
+        workExperience,
+        skills,
+        employmentType: jobType,
+        preferredIndustry: industry,
+      });
+    }
 
     router.push("/onboarding/step-3");
   };
