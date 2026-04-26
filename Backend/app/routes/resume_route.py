@@ -1,16 +1,18 @@
 import os
 import uuid
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from ..database.db_client import Supabase, get_db
-from ..helper import Helper
-from ..user import User
+from ...database.db_client import Supabase, get_db
+from ...helper import Helper
+from ...user import User
 
 router = APIRouter()
 
 AGENT_BASE_URL = os.getenv("AGENT_BASE_URL", "http://localhost:8001")
+
 
 class ScoreRequest(BaseModel):
     job_url: str
@@ -21,33 +23,7 @@ class TailorAnswerRequest(BaseModel):
     user_question: str
 
 
-class UserProfileRequest(BaseModel):
-    full_name: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    location: str | None = None
-    linkedin: str | None = None
-    current_job_title: str | None = None
-    years_of_experience: str | None = None
-    summary: str | None = None
-    desired_job_title: str | None = None
-    desired_job_type: str | None = None
-    salary_range: str | None = None
-    preferred_work_location: str | None = None
-    employment_type: str | None = None
-    preferred_industry: str | None = None
-    preferred_industries: str | None = None
-    work_experience: list[str] | None = None
-    skills: list[str] | None = None
-
-
-@router.get("/{user_id}/profile")
-def get_profile(user_id: str, db: Supabase = Depends(get_db)):
-    """Return merged users + profiles data for the given user_id."""
-    return db.get_user_profile(user_id)
-
-
-@router.get("/{user_id}/resume")
+@router.get("/{user_id}/resume", tags=["resumes"], summary="Get latest resume text")
 def get_resume_text(user_id: str, db: Supabase = Depends(get_db)):
     user = User(user_id)
     file_name, file_bytes, mimetype = user.get_latest_resume(db)
@@ -55,14 +31,11 @@ def get_resume_text(user_id: str, db: Supabase = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No resume found for this user.")
     try:
         return {"text": Helper.parse_resume_text(file_bytes, mimetype)}
-    except Exception as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Could not extract text from stored resume. Re-upload a searchable PDF or DOCX file. ({str(e)})",
-        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
-@router.post("/{user_id}/score")
+@router.post("/{user_id}/score", tags=["resumes"], summary="Score resume against job")
 async def score_resume(user_id: str, body: ScoreRequest):
     async with httpx.AsyncClient(timeout=120) as client:
         try:
@@ -79,16 +52,7 @@ async def score_resume(user_id: str, body: ScoreRequest):
     return response.json()
 
 
-@router.put("/{user_id}/profile")
-def upsert_profile(user_id: str, body: UserProfileRequest, db: Supabase = Depends(get_db)):
-    try:
-        db.upsert_user_profile(user_id, body.model_dump())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Profile save failed: {str(e)}")
-    return {"message": "Profile saved", "user_id": user_id}
-
-
-@router.post("/upload")
+@router.post("/upload", tags=["resumes"], summary="Upload resume file")
 async def upload_resume(
     file: UploadFile = File(...),
     user_id: str = None,
@@ -96,12 +60,13 @@ async def upload_resume(
 ):
     allowed_types = [
         "application/pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",  # .doc
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
     ]
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail="Only searchable PDF and DOCX files are allowed",
+            detail="Only PDF and Word documents (.doc, .docx) are allowed",
         )
     if not user_id:
         user_id = str(uuid.uuid4())
@@ -111,16 +76,11 @@ async def upload_resume(
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    try:
-        db.supabase.storage.from_("Resumes").remove([file_path])
-    except Exception:
-        pass
-
     existing = db.get_resumes_by_user(user_id)
     if existing.data:
         old_paths: list[str] = [
             str(r["file_path"]) for r in existing.data if r.get("file_path")
-        ]
+        ]  # type: ignore[union-attr]
         try:
             db.supabase.storage.from_("Resumes").remove(old_paths)
         except Exception:
@@ -138,11 +98,8 @@ async def upload_resume(
 
     try:
         parsed_text = Helper.parse_resume_text(file_bytes, file.content_type)
-    except Exception as e:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Could not extract text from resume. Upload a searchable PDF or DOCX file. ({str(e)})",
-        )
+    except Exception:
+        parsed_text = None
 
     resume_data = {
         "user_id": user_id,
@@ -164,9 +121,8 @@ async def upload_resume(
     }
 
 
-@router.post("/{user_id}/answer")
+@router.post("/{user_id}/answer", tags=["resumes"], summary="Generate tailored answer")
 async def tailor_answer(user_id: str, body: TailorAnswerRequest):
-    """Forward the tailored answer request to the agent."""
     async with httpx.AsyncClient(timeout=120) as client:
         try:
             response = await client.post(

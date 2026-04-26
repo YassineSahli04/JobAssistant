@@ -8,6 +8,9 @@ export interface AnalysisResult {
   score: number;
   strengths: string[];
   weaknesses: string[];
+  experience_gap: string;
+  top_improvements: { action: string; reason: string; priority: string }[];
+  summary: string;
 }
 
 export interface AnalysisModalProps {
@@ -123,6 +126,34 @@ function ListItem({ children, icon, index }: ListItemProps) {
   );
 }
 
+function priorityColor(p: string) {
+  if (p === "high") return "#ef4444";
+  if (p === "medium") return "#f59e0b";
+  return "#64748b";
+}
+
+function ImprovementItem({ item, index }: { item: { action: string; reason: string; priority: string }; index: number }) {
+  const color = priorityColor(item.priority);
+  return (
+    <li
+      className="flex items-start gap-3 text-sm leading-relaxed"
+      style={{ animationDelay: `${index * 60}ms` }}
+    >
+      <WarningIcon />
+      <div className="flex-1 min-w-0">
+        <span style={{ color: "#cbd5e1" }}>{item.action}</span>
+        <p className="text-xs mt-0.5" style={{ color: "#64748b" }}>{item.reason}</p>
+      </div>
+      <span
+        className="flex-shrink-0 text-xs font-semibold uppercase rounded-full px-2 py-0.5"
+        style={{ background: `${color}18`, color }}
+      >
+        {item.priority}
+      </span>
+    </li>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export default function AnalysisModal({
@@ -130,7 +161,7 @@ export default function AnalysisModal({
   result,
   onClose,
 }: AnalysisModalProps) {
-  const { score, strengths, weaknesses } = result;
+  const { score, strengths, weaknesses, experience_gap, top_improvements, summary } = result;
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const scoreColor = getScoreColor(score);
@@ -387,6 +418,22 @@ export default function AnalysisModal({
                 style={{ background: "rgba(255,255,255,0.05)" }}
               />
 
+              {/* ── Summary & experience gap ── */}
+              {(summary || experience_gap) && (
+                <div className="am-fade-up px-7 mb-5" style={{ animationDelay: "0.12s" }}>
+                  {summary && (
+                    <p className="text-xs leading-relaxed" style={{ color: "#475569" }}>
+                      {summary}
+                    </p>
+                  )}
+                  {experience_gap && (
+                    <p className="text-xs mt-1.5 italic" style={{ color: "#374151" }}>
+                      {experience_gap}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* ── Strengths ── */}
               <div
                 className="am-fade-up px-7 mb-5"
@@ -422,7 +469,7 @@ export default function AnalysisModal({
                 </ul>
               </div>
 
-              {/* ── Weaknesses ── */}
+              {/* ── Top Improvements ── */}
               <div
                 className="am-fade-up px-7 mb-7"
                 style={{ animationDelay: "0.22s" }}
@@ -445,14 +492,12 @@ export default function AnalysisModal({
                       color: "#f59e0b",
                     }}
                   >
-                    {weaknesses.length}
+                    {top_improvements.length}
                   </span>
                 </div>
-                <ul className="space-y-2.5" role="list" aria-label="Areas to improve">
-                  {weaknesses.map((item, i) => (
-                    <ListItem key={i} icon="warning" index={i}>
-                      {item}
-                    </ListItem>
+                <ul className="space-y-3" role="list" aria-label="Areas to improve">
+                  {top_improvements.map((imp, i) => (
+                    <ImprovementItem key={i} item={imp} index={i} />
                   ))}
                 </ul>
               </div>

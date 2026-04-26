@@ -4,6 +4,7 @@ scraper.py Scraper to extract Job Description and relevant INFO from the given U
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from contextlib import contextmanager

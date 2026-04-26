@@ -18,6 +18,8 @@ env/
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 # Checkpoint folders created automatically next to any .ipynb file
 **/.ipynb_checkpoints/
+# Notebooks are local dev/test only
+Agent/notebooks/
 
 # ── LangGraph ─────────────────────────────────────────────────────────────────
 # Local LangGraph dev-server state

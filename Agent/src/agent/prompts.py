@@ -109,6 +109,7 @@ Guidelines:
   behavioural.
 - Keep the answer focused and under 250 words unless depth is truly needed.
 - Write in first person as if the candidate is speaking.
+- Plain text only — no markdown, no asterisks, no bullet symbols.
 """
 
 TAILORED_ANSWER_USER_TEMPLATE = """\

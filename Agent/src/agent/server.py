@@ -8,18 +8,17 @@ from dotenv import find_dotenv, load_dotenv
 from fastapi import FastAPI, HTTPException
 
 logger = logging.getLogger(__name__)
-from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel
 
 from agent.graph import create_graph
+from agent.schemas import ScoreResult, TailorAnswerResult
 from agent.state import State, RequestType
 
 load_dotenv(find_dotenv())
 
 app = FastAPI(title="Resume Scorer Agent")
 
-# Standalone server: compile with MemorySaver so sessions are persisted per user
-graph = create_graph(checkpointer=MemorySaver())
+graph = create_graph()
 
 
 class ScoreRequest(BaseModel):
@@ -31,7 +30,7 @@ class TailorAnswerRequest(BaseModel):
     user_question: str
 
 
-@app.post("/score")
+@app.post("/score", response_model=ScoreResult)
 async def score(user_id: str, body: ScoreRequest):
     """Score the user's saved resume against the given job posting."""
     config = {"configurable": {"thread_id": user_id}}
@@ -46,7 +45,7 @@ async def score(user_id: str, body: ScoreRequest):
     return result["score_result"]
 
 
-@app.post("/answer")
+@app.post("/answer", response_model=TailorAnswerResult)
 async def answer(user_id: str, body: TailorAnswerRequest):
     """Answer a job-related question tailored to the user's resume."""
     config = {"configurable": {"thread_id": user_id}}
@@ -58,7 +57,7 @@ async def answer(user_id: str, body: TailorAnswerRequest):
     except Exception as e:
         logger.exception("Answer request failed for user %s", user_id)
         raise HTTPException(status_code=500, detail=str(e))
-    return result["ai_answer"]
+    return TailorAnswerResult(answer=result["ai_answer"])
 
 
 @app.get("/health")

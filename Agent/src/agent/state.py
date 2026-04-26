@@ -4,6 +4,8 @@ from enum import Enum
 from typing import TypedDict
 from typing_extensions import NotRequired
 
+from agent.schemas import ScoreResult
+
 
 class RequestType(Enum):
     score = 0
@@ -19,7 +21,7 @@ class State(TypedDict):
     # ── populated during execution ────────────────────────────────────────────
     resume_text: NotRequired[str]
     job_description: NotRequired[str]
-    score_result: NotRequired[dict]
+    score_result: NotRequired[ScoreResult]
     user_question: NotRequired[str]
     ai_answer: NotRequired[str]
 

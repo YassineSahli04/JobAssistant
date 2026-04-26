@@ -42,10 +42,10 @@ export default function OnboardingStep1() {
       })
       .then((data) => {
         setFormData({
-          fullName: "",
-          email: "",
-          phone: "",
-          location: "",
+          fullName: data.full_name ?? "",
+          email: data.email ?? "",
+          phone: data.phone ?? "",
+          location: data.location ?? "",
         });
       })
       .catch(() => {

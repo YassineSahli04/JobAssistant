@@ -16,6 +16,9 @@ interface AnalysisResult {
   score: number;
   strengths: string[];
   weaknesses: string[];
+  experience_gap: string;
+  top_improvements: { action: string; reason: string; priority: string }[];
+  summary: string;
 }
 
 
@@ -102,6 +105,9 @@ export default function HomePage() {
         score: result.match_score,
         strengths: result.matched_skills,
         weaknesses: result.missing_skills,
+        experience_gap: result.experience_gap,
+        top_improvements: result.top_improvements,
+        summary: result.summary,
       });
       setShowModal(true);
     } catch (err) {

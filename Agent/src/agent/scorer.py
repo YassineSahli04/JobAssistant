@@ -2,8 +2,8 @@
 
 This module exposes a single public function, `score_resume`, which:
   1. Formats the resume and job description into the scorer prompt.
-  2. Calls Gemini 2.5 Flash via LangChain (automatically traced by LangSmith).
-  3. Parses and returns the structured JSON assessment.
+  2. Calls Gemini 2.5 Flash via LangChain with structured output enforced.
+  3. Returns a validated ScoreResult — no manual parsing needed.
 
 Resilience strategy:
   - 503 UNAVAILABLE : retry primary up to 3 times with exponential backoff.
@@ -18,22 +18,20 @@ than isinstance checks, which would silently never match.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agent.prompts import RESUME_SCORER_SYSTEM, RESUME_SCORER_USER_TEMPLATE
+from agent.schemas import ScoreResult
 
 logger = logging.getLogger(__name__)
 
 _GEMINI_PRIMARY  = "gemini-2.5-flash"
 _GEMINI_FALLBACK = "gemini-3.1-flash-lite-preview"
 
-# Lazily initialised — created on first call so that importing this module does
-# not require GOOGLE_API_KEY to be set (unit tests never call score_resume).
+# Lazily initialised — created on first call so that importing this module does not require GOOGLE_API_KEY to be set (unit tests never call score_resume).
 _primary_llm:  ChatGoogleGenerativeAI | None = None
 _fallback_llm: ChatGoogleGenerativeAI | None = None
 
@@ -64,15 +62,17 @@ def _is_unavailable(exc: Exception) -> bool:
     return "503" in s or "UNAVAILABLE" in s
 
 
-async def _invoke_with_resilience(messages: list) -> AIMessage:
-    """Call primary model with retry on 503; fall back to secondary on 429 or exhausted retries.
+async def _invoke_scored(messages: list) -> ScoreResult:
+    """Call primary model with structured output; retry on 503, fall back on 429.
+
+    with_structured_output forces Gemini to return data matching ScoreResult
+    via function-calling — no string parsing or manual field validation needed.
 
     Retry schedule for 503: 1 s → 2 s → give up → fallback.
     429 skips retries entirely and goes straight to the fallback.
     """
-    primary  = _get_primary()
-    fallback = _get_fallback()
-
+    primary  = _get_primary().with_structured_output(ScoreResult)
+    fallback = _get_fallback().with_structured_output(ScoreResult)
     last_exc: Exception | None = None
 
     for attempt in range(3):
@@ -105,16 +105,7 @@ async def _invoke_with_resilience(messages: list) -> AIMessage:
         ) from fallback_exc
 
 
-_REQUIRED_FIELDS = {"match_score", "matched_skills", "missing_skills", "experience_gap", "top_improvements", "summary"}
-
-
-def _validate_score_schema(result: dict) -> None:
-    missing = _REQUIRED_FIELDS - result.keys()
-    if missing:
-        raise ValueError(f"LLM response missing required fields: {missing}. Got: {list(result.keys())}")
-
-
-async def score_resume(jd_text: str, resume_text: str) -> dict:
+async def score_resume(jd_text: str, resume_text: str) -> ScoreResult:
     """Score a resume against a job description using Gemini 2.5 Flash.
 
     Args:
@@ -122,18 +113,10 @@ async def score_resume(jd_text: str, resume_text: str) -> dict:
         resume_text: The candidate's resume as plain text.
 
     Returns:
-        Parsed assessment dict matching the resume scorer output schema:
-            {
-                "match_score":      int,          # 0–100
-                "matched_skills":   list[str],
-                "missing_skills":   list[str],
-                "experience_gap":   str,
-                "top_improvements": list[dict],   # action / reason / priority
-                "summary":          str,
-            }
+        A validated ScoreResult instance with all fields guaranteed present and typed.
 
     Raises:
-        ValueError: If the LLM response cannot be parsed as valid JSON dict.
+        ValidationError: If the LLM response does not conform to ScoreResult schema.
         RuntimeError: If both primary and fallback models fail.
     """
     messages = [
@@ -145,63 +128,4 @@ async def score_resume(jd_text: str, resume_text: str) -> dict:
             )
         ),
     ]
-
-    response = await _invoke_with_resilience(messages)
-    result = _parse_json(_extract_text(response.content))
-    _validate_score_schema(result)
-    return result
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-def _extract_text(content: str | list) -> str:
-    """Normalise LLM response content to a plain string.
-
-    Most models return content as a str. Some (e.g. gemini-3.1-flash-lite-preview)
-    return a list of content parts: [{"type": "text", "text": "..."}].
-    """
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(
-            part["text"] if isinstance(part, dict) and "text" in part else str(part)
-            for part in content
-        )
-    return str(content)
-
-
-def _parse_json(raw: str) -> dict:
-    """Strip optional markdown fences and parse JSON from an LLM response.
-
-    Some models wrap their output in ```json ... ``` blocks despite being
-    instructed not to. This function handles both the clean and wrapped cases.
-
-    Args:
-        raw: Raw string content from the LLM response.
-
-    Returns:
-        Parsed JSON as a dict.
-
-    Raises:
-        ValueError: If the cleaned string is not valid JSON.
-    """
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = re.sub(r"^```(?:json)?\n?", "", raw)
-        raw = re.sub(r"\n?```$", "", raw)
-
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"LLM returned non-JSON output. First 200 chars: {raw[:200]!r}"
-        ) from exc
-
-    if not isinstance(parsed, dict):
-        raise ValueError(
-            f"LLM returned valid JSON but not an object (got {type(parsed).__name__}). "
-            f"First 200 chars: {raw[:200]!r}"
-        )
-
-    return parsed
+    return await _invoke_scored(messages)

@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agent.prompts import TAILORED_ANSWER_SYSTEM, TAILORED_ANSWER_USER_TEMPLATE
+from agent.schemas import TailorAnswerResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def _get_fallback() -> ChatGoogleGenerativeAI:
     return _fallback_llm
 
 
-async def tailor_answer_question(jd_text: str, resume_text: str, user_question: str) -> str:
+async def tailor_answer_question(jd_text: str, resume_text: str, user_question: str) -> TailorAnswerResult:
     """Generate a tailored interview answer grounded in the resume and job description.
 
     Args:
@@ -41,7 +42,7 @@ async def tailor_answer_question(jd_text: str, resume_text: str, user_question: 
         user_question: The interview or job-related question to answer.
 
     Returns:
-        A personalised, well-developed answer as plain text.
+        A TailorAnswerResult with the personalised answer as plain text.
 
     Raises:
         RuntimeError: If both primary and fallback models fail.
@@ -79,4 +80,4 @@ async def tailor_answer_question(jd_text: str, resume_text: str, user_question: 
             part["text"] if isinstance(part, dict) and "text" in part else str(part)
             for part in content
         )
-    return str(content).strip()
+    return TailorAnswerResult(answer=str(content).strip())
