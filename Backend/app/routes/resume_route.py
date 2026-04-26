@@ -109,6 +109,7 @@ async def upload_resume(
         "parsed_text": parsed_text,
     }
     try:
+        db.ensure_user(user_id)
         db.insert_resume(resume_data)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database insert failed: {str(e)}")

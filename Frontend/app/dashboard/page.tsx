@@ -37,7 +37,27 @@ export default function DashboardPage() {
   const [showResults, setShowResults] = useState(false);
   const [aiQuestion, setAiQuestion] = useState("");
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [aiAnswerError, setAiAnswerError] = useState<string | null>(null);
   const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false);
+
+  useEffect(() => {
+    if (!showDetails) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        handleCloseModal();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showDetails]);
 
 
 
@@ -64,13 +84,13 @@ export default function DashboardPage() {
   const handleGenerateAnswer = async () => {
     if (!aiQuestion.trim() || !jobUrl.trim()) return;
     setIsGeneratingAnswer(true);
-    setAiAnswer(null);
+    setAiAnswerError(null);
     try {
       const userId = getUserId();
       const answer = await tailorAnswer(userId, jobUrl, aiQuestion);
       setAiAnswer(answer);
     } catch (err) {
-      setAiAnswer(`Error: ${err instanceof Error ? err.message : "Failed to generate answer."}`);
+      setAiAnswerError(err instanceof Error ? err.message : "Failed to generate answer.");
     } finally {
       setIsGeneratingAnswer(false);
     }
@@ -186,19 +206,6 @@ export default function DashboardPage() {
                 />
               </div>
 
-              <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
-                  Job Description
-                </label>
-                <textarea
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                  placeholder="Paste the full job description here..."
-                  rows={8}
-                  className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3.5 text-sm text-white placeholder:text-white/25 outline-none transition focus:border-indigo-400/50 focus:bg-white/[0.06]"
-                />
-              </div>
-
               <button
                 onClick={handleAnalyze}
                 disabled={isAnalyzing}
@@ -278,6 +285,8 @@ export default function DashboardPage() {
                   answer={aiAnswer}
                   onQuestionChange={setAiQuestion}
                   onGenerate={handleGenerateAnswer}
+                  error={aiAnswerError}
+                  hasAnswer={Boolean(aiAnswer)}
                 />
               </div>
 
@@ -343,11 +352,23 @@ export default function DashboardPage() {
       </section>
 
       {showDetails && analysisResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-          <div className="relative w-full max-w-xl rounded-3xl border border-white/10 bg-[#081021] p-6 shadow-2xl">
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/70 px-4 py-6"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleCloseModal();
+            }
+          }}
+        >
+          <div
+            className="relative mx-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#081021] p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
+              type="button"
               onClick={handleCloseModal}
               className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-2xl border border-indigo-500/40 bg-white/[0.03] text-white/60 transition hover:text-white"
+              aria-label="Close analysis modal"
             >
               <X className="h-5 w-5" />
             </button>
@@ -385,47 +406,50 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-6">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#22c55e]">
-                  Strengths
-                </p>
-                <span className="rounded-full bg-[#22c55e]/15 px-2.5 py-1 text-xs text-[#22c55e]">
-                  {analysisResult.strengths.length}
-                </span>
+            <div className="mt-6 max-h-[48vh] overflow-y-auto pr-1">
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#22c55e]">
+                    Strengths
+                  </p>
+                  <span className="rounded-full bg-[#22c55e]/15 px-2.5 py-1 text-xs text-[#22c55e]">
+                    {analysisResult.strengths.length}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {analysisResult.strengths.map((item) => (
+                    <div key={item} className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#22c55e]" />
+                      <p className="text-sm leading-6 text-white/85">{item}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="space-y-3">
-                {analysisResult.strengths.map((item) => (
-                  <div key={item} className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#22c55e]" />
-                    <p className="text-sm leading-6 text-white/85">{item}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
+              <div className="mt-6">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
+                    Areas to Improve
+                  </p>
+                  <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-xs text-amber-400">
+                    {analysisResult.improvements.length}
+                  </span>
+                </div>
 
-            <div className="mt-6">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-400">
-                  Areas to Improve
-                </p>
-                <span className="rounded-full bg-amber-400/15 px-2.5 py-1 text-xs text-amber-400">
-                  {analysisResult.improvements.length}
-                </span>
-              </div>
-
-              <div className="space-y-3">
-                {analysisResult.improvements.map((item) => (
-                  <div key={item} className="flex items-start gap-3">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
-                    <p className="text-sm leading-6 text-white/85">{item}</p>
-                  </div>
-                ))}
+                <div className="space-y-3">
+                  {analysisResult.improvements.map((item) => (
+                    <div key={item} className="flex items-start gap-3">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                      <p className="text-sm leading-6 text-white/85">{item}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
             <button
+              type="button"
               onClick={handleCloseModal}
               className="mt-8 w-full rounded-2xl bg-indigo-500/10 px-6 py-3.5 text-sm font-semibold text-indigo-300 transition hover:bg-indigo-500/15"
             >
