@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+
 interface PersonalInfo {
   fullName: string;
   email: string;
@@ -12,21 +14,44 @@ interface PersonalInfo {
 
 export default function OnboardingStep1() {
   const router = useRouter();
-
   const [formData, setFormData] = useState<PersonalInfo>({
     fullName: "",
     email: "",
     phone: "",
     location: "",
   });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Retrieve userId from localStorage (set during upload or first visit)
+  const getUserId = () => localStorage.getItem("user_id") ?? "";
 
   useEffect(() => {
-    setFormData({
-      fullName: localStorage.getItem("profile_fullName") || "",
-      email: localStorage.getItem("profile_email") || "",
-      phone: localStorage.getItem("profile_phone") || "",
-      location: localStorage.getItem("profile_location") || "",
-    });
+    const userId = getUserId();
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
+
+    // Fetch profile from Supabase via backend
+    fetch(`${API_BASE}/users/${userId}/profile`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load profile");
+        return res.json();
+      })
+      .then((data) => {
+        setFormData({
+          fullName: "",
+          email: "",
+          phone: "",
+          location: "",
+        });
+      })
+      .catch(() => {
+        // If no profile yet, start with empty form — not an error worth showing
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,17 +59,54 @@ export default function OnboardingStep1() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleContinue = () => {
-    localStorage.setItem("profile_fullName", formData.fullName);
-    localStorage.setItem("profile_email", formData.email);
-    localStorage.setItem("profile_phone", formData.phone);
-    localStorage.setItem("profile_location", formData.location);
+  const handleContinue = async () => {
+    setError(null);
+    setSaving(true);
 
-    router.push("/onboarding/step-2");
+    let userId = getUserId();
+    if (!userId) {
+      // Generate a temporary userId if none exists yet (before resume upload)
+      userId = crypto.randomUUID();
+      localStorage.setItem("user_id", userId);
+    }
+
+    const payload = {
+      full_name: formData.fullName,
+      email: formData.email,
+      phone: formData.phone,
+      location: formData.location,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/users/${userId}/profile`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail ?? "Failed to save profile");
+      }
+
+      router.push("/onboarding/step-2");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const fields: { id: keyof PersonalInfo; label: string; type: string; placeholder: string; autoComplete: string }[] = [
+    { id: "fullName",  label: "Full Name",      type: "text",  placeholder: "Jane Doe",             autoComplete: "name" },
+    { id: "email",     label: "Email Address",  type: "email", placeholder: "jane@example.com",     autoComplete: "email" },
+    { id: "phone",     label: "Phone Number",   type: "tel",   placeholder: "+1 (555) 000-0000",   autoComplete: "tel" },
+    { id: "location",  label: "Location",       type: "text",  placeholder: "San Francisco, CA",    autoComplete: "address-level2" },
+  ];
 
   return (
     <main className="min-h-screen bg-[#0a0a0f] flex items-center justify-center px-4 py-12">
+      {/* Background glows */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full bg-indigo-700/10 blur-[120px]" />
         <div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] rounded-full bg-violet-700/10 blur-[120px]" />
@@ -73,83 +135,40 @@ export default function OnboardingStep1() {
             </p>
           </div>
 
-          <div className="space-y-5">
-            <div className="space-y-1.5">
-              <label
-                htmlFor="fullName"
-                className="block text-xs font-medium text-white/60 tracking-wide uppercase"
-              >
-                Full Name
-              </label>
-              <input
-                id="fullName"
-                name="fullName"
-                type="text"
-                autoComplete="name"
-                placeholder="Jane Doe"
-                value={formData.fullName}
-                onChange={handleChange}
-                className="w-full bg-white/[0.04] border border-white/[0.10] hover:border-white/20 focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all duration-200"
-              />
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-6 h-6 border-2 border-indigo-500/40 border-t-indigo-500 rounded-full animate-spin" />
             </div>
+          ) : (
+            <div className="space-y-5">
+              {fields.map(({ id, label, type, placeholder, autoComplete }) => (
+                <div key={id} className="space-y-1.5">
+                  <label
+                    htmlFor={id}
+                    className="block text-xs font-medium text-white/60 tracking-wide uppercase"
+                  >
+                    {label}
+                  </label>
+                  <input
+                    id={id}
+                    name={id}
+                    type={type}
+                    autoComplete={autoComplete}
+                    placeholder={placeholder}
+                    value={formData[id]}
+                    onChange={handleChange}
+                    className="w-full bg-white/[0.04] border border-white/[0.10] hover:border-white/20 focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all duration-200"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
-            <div className="space-y-1.5">
-              <label
-                htmlFor="email"
-                className="block text-xs font-medium text-white/60 tracking-wide uppercase"
-              >
-                Email Address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                placeholder="jane@example.com"
-                value={formData.email}
-                onChange={handleChange}
-                className="w-full bg-white/[0.04] border border-white/[0.10] hover:border-white/20 focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all duration-200"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label
-                htmlFor="phone"
-                className="block text-xs font-medium text-white/60 tracking-wide uppercase"
-              >
-                Phone Number
-              </label>
-              <input
-                id="phone"
-                name="phone"
-                type="tel"
-                autoComplete="tel"
-                placeholder="+1 (555) 000-0000"
-                value={formData.phone}
-                onChange={handleChange}
-                className="w-full bg-white/[0.04] border border-white/[0.10] hover:border-white/20 focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all duration-200"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label
-                htmlFor="location"
-                className="block text-xs font-medium text-white/60 tracking-wide uppercase"
-              >
-                Location
-              </label>
-              <input
-                id="location"
-                name="location"
-                type="text"
-                autoComplete="address-level2"
-                placeholder="San Francisco, CA"
-                value={formData.location}
-                onChange={handleChange}
-                className="w-full bg-white/[0.04] border border-white/[0.10] hover:border-white/20 focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-4 py-3 text-sm text-white placeholder-white/25 outline-none transition-all duration-200"
-              />
-            </div>
-          </div>
+          {error && (
+            <p className="mt-4 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2">
+              {error}
+            </p>
+          )}
 
           <div className="my-8 border-t border-white/[0.06]" />
 
@@ -165,15 +184,19 @@ export default function OnboardingStep1() {
             <button
               type="button"
               onClick={handleContinue}
-              className="flex-[2] px-5 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-200"
+              disabled={saving || loading}
+              className="flex-[2] px-5 py-3 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Continue
+              {saving && (
+                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              )}
+              {saving ? "Saving…" : "Continue"}
             </button>
           </div>
         </div>
 
         <p className="text-center text-xs text-white/25 mt-6">
-          Your information is stored locally and never shared.
+          Your information is securely stored and never shared.
         </p>
       </div>
     </main>

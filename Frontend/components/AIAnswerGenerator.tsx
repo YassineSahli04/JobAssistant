@@ -2,18 +2,16 @@
 
 import React from "react";
 
-// ── Types ──────────────────────────────────────────────────────────────────
-
 export interface AIAnswerGeneratorProps {
   question: string;
   answer: string | null;
   onQuestionChange: (value: string) => void;
   onGenerate: () => void;
   isLoading?: boolean;
+  error?: string | null;
+  hasAnswer?: boolean;
   className?: string;
 }
-
-// ── Main Component ─────────────────────────────────────────────────────────
 
 export default function AIAnswerGenerator({
   question,
@@ -21,6 +19,8 @@ export default function AIAnswerGenerator({
   onQuestionChange,
   onGenerate,
   isLoading = false,
+  error = null,
+  hasAnswer = false,
   className = "",
 }: AIAnswerGeneratorProps) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -34,10 +34,9 @@ export default function AIAnswerGenerator({
       className={`rounded-2xl p-6 flex flex-col ${className}`}
       style={{ background: "#0f1320", border: "1px solid #1e2538" }}
     >
-      {/* ── Card header ── */}
       <div className="flex items-center gap-2 mb-5">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: "rgba(99,102,241,0.15)" }}
           aria-hidden="true"
         >
@@ -67,7 +66,6 @@ export default function AIAnswerGenerator({
         </h2>
       </div>
 
-      {/* ── Input + Button ── */}
       <div className="space-y-3">
         <input
           id="ai-question-input"
@@ -95,8 +93,9 @@ export default function AIAnswerGenerator({
           className="w-full rounded-xl px-6 py-3 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0f1320] active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
           style={{ background: "#6366f1", color: "#fff" }}
           onMouseEnter={(e) => {
-            if (!e.currentTarget.disabled)
+            if (!e.currentTarget.disabled) {
               e.currentTarget.style.background = "#4f52e0";
+            }
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = "#6366f1";
@@ -106,7 +105,6 @@ export default function AIAnswerGenerator({
         </button>
       </div>
 
-      {/* ── Answer display ── */}
       {answer && (
         <div
           className="mt-4 rounded-xl p-4 leading-relaxed"
@@ -118,7 +116,6 @@ export default function AIAnswerGenerator({
           aria-label="Generated answer"
           aria-live="polite"
         >
-          {/* Answer header */}
           <div className="flex items-center gap-1.5 mb-2">
             <svg
               width="12"
@@ -156,6 +153,18 @@ export default function AIAnswerGenerator({
             {answer}
           </p>
         </div>
+      )}
+
+      {error && hasAnswer && (
+        <p className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+          The answer was generated, but the latest refresh failed: {error}
+        </p>
+      )}
+
+      {error && !hasAnswer && (
+        <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-red-200">
+          {error}
+        </p>
       )}
     </div>
   );
